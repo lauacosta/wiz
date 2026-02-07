@@ -29,7 +29,7 @@ jobs:
         run: cargo build --release --target x86_64-unknown-linux-musl
 
       - name: Strip binary
-        run: strip target/x86_64-unknown-linux-musl/release/YOUR_BINARY_NAME
+        run: strip target/x86_64-unknown-linux-musl/release/wiz
 
       - name: Rename binary
         run: |
