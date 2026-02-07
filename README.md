@@ -1,11 +1,15 @@
 # Wiz
 
-It's a little tool for personal use. Right now only has two commands:
+It's a little tool for personal use. Right now it only has two commands:
 
 - spell <file>: You give it a text file and it will return suggestions and replacements. Kind of an educated talking duck.
 - cmd <prompt>: You ask a command to do something and it tries its best to answer in a one-shot command. If you ask for something dangerous or ambiguous it will refuse.
 
 It uses llm with OpenRouter as the backend and for now has all prompts and model (gpt-4o-mini) hardcoded.
+
+It stores cmd and spell conversations in two sqlite files 'cmd.db' and 'spell.db' respectively. The location varies by platform:
+- Linux/macOS: `$XDG_DATA_HOME/wiz` if set, otherwise `$HOME/.local/share/wiz`
+- Windows: `%APPDATA%\wiz`
 
 Credit where credit is due, the ideas for the commands came to me from a [tweet](https://x.com/DamianCatanzaro/status/2019223722406621612) and [matklad](https://github.com/matklad/matklad.github.io/blob/master/src/spell.ts).
 
@@ -30,7 +34,7 @@ To use it you need the llm CLI with OpenRouter as a plugin. I did it with:
 ``` fish
 $ uv tool install llm --with llm-openrouter
 
-# You then need to give it the API_KEY for OpenRouter
+# You then need to give it the API KEY for OpenRouter
 $ llm keys set openrouter 
 ```
 

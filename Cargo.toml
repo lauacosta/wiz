@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+[target.'cfg(target_os = "windows")'.dependencies]
+rusqlite = {version = "0.38.0", default-features = false, features = ["bundled"] }
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
 rusqlite = {version = "0.38.0", default-features = false }
 
 [profile.release]

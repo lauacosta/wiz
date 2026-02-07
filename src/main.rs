@@ -1,6 +1,6 @@
 use std::{
     io::Write as _,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Stdio},
     str,
     sync::{
@@ -10,6 +10,8 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+use rusqlite::Connection;
 
 static SPINNER_TX: OnceLock<Sender<SpinnerMsg>> = OnceLock::new();
 
@@ -33,9 +35,17 @@ fn main() {
         Some("help" | "-h") => {
             print_help();
         }
+
         Some("spell") => {
-            let file = args.next().expect("spell requires a file argument");
-            spell_check(&PathBuf::from(file), llm);
+            let subcommand = args.next();
+            match subcommand.as_deref() {
+                Some("status") => check_db_status("spell.db"),
+                Some(file) => spell_check(&PathBuf::from(file), llm),
+                None => {
+                    eprintln!("A file path is required.");
+                    std::process::exit(1);
+                }
+            }
         }
         Some("cmd") => {
             let subcommand = args.next();
@@ -44,6 +54,7 @@ fn main() {
                     let n = args.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(5);
                     list_cmds(n);
                 }
+                Some("status") => check_db_status("cmd.db"),
                 Some(first_arg) => {
                     let prompt = std::iter::once(first_arg.to_string())
                         .chain(args)
@@ -74,6 +85,7 @@ Usage:
   wiz cmd list [number]      List the last <number> requests (default: 5)
   wiz spell <file>           Check spelling in a file
   wiz <text>                 Same as wiz cmd <text>
+  wiz (spell|cmd) status     Show status of database logging
   wiz help                   Show this help message
 
 Options:
@@ -112,8 +124,9 @@ IMPORTANT RULES:
 
 Here is the text to check: #";
 
+    let db_path = get_data_dir().join("spell.db");
     let mut child = cmd
-        .args(["-s", system_prompt])
+        .args(["-d", &db_path.display().to_string(), "-s", system_prompt])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -247,8 +260,15 @@ REFUSE
 Nothing else.
 #";
 
+    let db_path = get_data_dir().join("cmd.db");
     let output = cmd
-        .args(["-s", system_prompt, &user_prompt])
+        .args([
+            "-d",
+            &db_path.display().to_string(),
+            "-s",
+            system_prompt,
+            &user_prompt,
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -266,15 +286,7 @@ Nothing else.
 }
 
 fn list_cmds(number: u32) {
-    let output = Command::new("llm")
-        .args(["logs", "path"])
-        .output()
-        .expect("Expected a path");
-
-    let path_bytes = &output.stdout;
-    let path_str = str::from_utf8(path_bytes).expect("I expected valid UTF-8");
-    let path_trimmed = path_str.trim_end_matches(['\n', '\r']);
-    let db_path = Path::new(path_trimmed);
+    let db_path = get_data_dir().join("cmd.db");
 
     if !db_path.exists() {
         eprintln!("Path: {} does not exist.", db_path.display());
@@ -284,7 +296,7 @@ fn list_cmds(number: u32) {
     let conn = rusqlite::Connection::open(db_path)
         .expect("I expect to be able to open a connection to the sqlite db");
     let sql_str = format!(
-        "select prompt, response, token_details from responses order by datetime_utc limit {number}"
+        "select prompt, response, token_details, model from responses order by datetime_utc desc limit {number}"
     );
     let mut stmt = conn
         .prepare(&sql_str)
@@ -297,13 +309,18 @@ fn list_cmds(number: u32) {
         let token_details = row
             .get_ref_unwrap(2)
             .as_str()
-            .expect("Failed to interpret as bytes");
+            .expect("Failed to interpret as str");
+
+        let model = row
+            .get_ref_unwrap(3)
+            .as_str()
+            .expect("Failed to interpret as str");
 
         let cost = extract_cost(token_details).unwrap_or_default();
 
         writeln!(
             std::io::stdout(),
-            "\n\x1b[1;32mPrompt:\x1b[0m \"{prompt}\"\n\x1b[1;33mResponse:\x1b[0m \"{response}\"\n\x1b[1;33mCost:\x1b[0m ${cost:.6} (USD)\n",
+            "\n\x1b[1;32mPrompt:\x1b[0m \"{prompt}\"\n\x1b[1;33mModel:\x1b[0m \"{model}\"\n\x1b[1;33mResponse:\x1b[0m \"{response}\"\n\x1b[1;33mCost:\x1b[0m ${cost:.6} (USD)\n",
         )
         .expect("Failed to write to stdout");
     }
@@ -341,7 +358,6 @@ fn init_spinner() {
 
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .ok()
             .expect("Expected to be able to determine UNIX_EPOCH")
             .subsec_nanos() as usize;
 
@@ -374,4 +390,55 @@ fn stop_spinner() {
         let _ = tx.send(SpinnerMsg::Stop);
     }
     thread::sleep(Duration::from_millis(100));
+}
+
+fn get_data_dir() -> PathBuf {
+    #[cfg(not(windows))]
+    {
+        let base = match std::env::var("XDG_DATA_HOME") {
+            Ok(xdg) if !xdg.is_empty() => PathBuf::from(xdg),
+            _ => {
+                let home = std::env::var("HOME").expect("HOME not set");
+                PathBuf::from(home).join(".local/share")
+            }
+        };
+
+        let wiz_dir = base.join("wiz");
+        std::fs::create_dir_all(&wiz_dir).expect("Failed to create data directory");
+        wiz_dir
+    }
+
+    #[cfg(windows)]
+    {
+        let app_data = std::env::var("APPDATA").expect("APPDATA not set");
+        let wiz_dir = PathBuf::from(app_data).join("wiz");
+        std::fs::create_dir_all(&wiz_dir).expect("Failed to create data directory");
+        wiz_dir
+    }
+}
+
+fn check_db_status(path: &str) {
+    let db_path = get_data_dir().join(path);
+    if !db_path.exists() {
+        eprintln!("Path: {} does not exist.", db_path.display());
+        std::process::exit(1);
+    }
+    let conn = Connection::open(&db_path).expect("Failed to create connection to db");
+
+    let conversations: i64 = conn
+        .query_row("SELECT COUNT(*) FROM conversations", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    let responses: i64 = conn
+        .query_row("SELECT COUNT(*) FROM responses", [], |row| row.get(0))
+        .unwrap_or(0);
+
+    let metadata = std::fs::metadata(&db_path).unwrap();
+    let size_bytes = metadata.len() as f64;
+    let size_kb = size_bytes / 1024.0;
+
+    println!("Found log database at {}", db_path.display());
+    println!("Number of conversations logged: {conversations}");
+    println!("Number of responses logged:     {responses}");
+    println!("Database file size:             {size_kb:.2}KB");
 }
