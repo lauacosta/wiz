@@ -19,7 +19,7 @@ fn main() {
     let mut llm = Command::new("llm");
     llm.args([
         "-m",
-        "openrouter/openai/gpt-4o-mini",
+        "openrouter/anthropic/claude-sonnet-4.5",
         "--no-stream",
         "--log",
     ]);
@@ -189,11 +189,12 @@ Here is the text to check: #";
     if !replacements.is_empty() {
         println!("\nProposed Replacements:");
 
-        for (old, new) in &replacements {
+        for (idx, (old, new)) in replacements.iter().enumerate() {
+            let idx = idx + 1;
             if content.contains(old) {
-                println!(" '{old}' → '{new}'");
+                println!("{idx}. '{old}' → '{new}'");
             } else {
-                println!("Hallucination: '{old}' → '{new}'");
+                println!("{idx}. Hallucination: '{old}' → '{new}'");
             }
         }
     }
