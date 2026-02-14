@@ -5,7 +5,7 @@ It's a little tool for personal use. Right now it only has two commands:
 - spell <file>: You give it a text file and it will return suggestions and replacements. Kind of an educated talking duck.
 - cmd <prompt>: You ask a command to do something and it tries its best to answer in a one-shot command. If you ask for something dangerous or ambiguous it will refuse.
 
-It uses llm with OpenRouter as the backend and for now has all prompts and model (gpt-4o-mini) hardcoded.
+It uses llm with OpenRouter as the backend and for now has all prompts and model (sonnet-4.5) hardcoded.
 
 It stores cmd and spell conversations in two sqlite files 'cmd.db' and 'spell.db' respectively. The location varies by platform:
 - Linux/macOS: `$XDG_DATA_HOME/wiz` if set, otherwise `$HOME/.local/share/wiz`
